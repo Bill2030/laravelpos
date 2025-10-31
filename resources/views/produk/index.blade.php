@@ -18,6 +18,7 @@
                     <button onclick="addForm('{{ route('produk.store') }}')" class="btn btn-success  btn-flat"><i class="fa fa-plus-circle"></i> Add New Product</button>
                     <button onclick="deleteSelected('{{ route('produk.delete_selected') }}')" class="btn btn-danger  btn-flat"><i class="fa fa-trash"></i> Delete</button>
                     <button onclick="cetakBarcode('{{ route('produk.cetak_barcode') }}')" class="btn btn-warning  btn-flat"><i class="fa fa-barcode"></i> Print Barcode</button>
+                    <button onclick="printProductList()" class="btn btn-primary btn-flat"><i class="fa fa-print"></i> Print Product List</button>
                 </div>
             </div>
             <div class="box-body table-responsive">
@@ -179,5 +180,79 @@
                 .submit();
         }
     }
+    function printProductList() {
+    // Ask DataTables to get all rows, not just the visible page
+    $.ajax({
+        url: '{{ route('produk.data') }}?all=true',
+        type: 'GET',
+        success: function (response) {
+            // Assuming your server returns { data: [...] }
+            let data = response.data;
+            let html = `
+                <html>
+                <head>
+                    <title>Product List</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; margin: 20px; }
+                        h2 { text-align: center; margin-bottom: 20px; }
+                        table { width: 100%; border-collapse: collapse; }
+                        th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
+                        th { background: #f3f3f3; }
+                    </style>
+                </head>
+                <body>
+                    <h2>Product List</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Code</th>
+                                <th>Name</th>
+                                <th>Category</th>
+                                <th>Brand</th>
+                                <th>Purchase Price</th>
+                                <th>Selling Price</th>
+                                <th>Discount</th>
+                                <th>Stock</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            data.forEach((item, index) => {
+                html += `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${item.kode_produk}</td>
+                        <td>${item.nama_produk}</td>
+                        <td>${item.nama_kategori}</td>
+                        <td>${item.merk}</td>
+                        <td>${item.harga_beli}</td>
+                        <td>${item.harga_jual}</td>
+                        <td>${item.diskon}</td>
+                        <td>${item.stok}</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                        </tbody>
+                    </table>
+                </body>
+                </html>
+            `;
+
+            let printWindow = window.open('', '_blank');
+            printWindow.document.open();
+            printWindow.document.write(html);
+            printWindow.document.close();
+            printWindow.print();
+        },
+        error: function () {
+            alert('Unable to fetch full product list for printing.');
+        }
+    });
+}
+
 </script>
 @endpush

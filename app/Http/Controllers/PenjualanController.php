@@ -7,7 +7,8 @@ use App\Models\PenjualanDetail;
 use App\Models\Produk;
 use App\Models\Setting;
 use Illuminate\Http\Request;
-use PDF;
+use Illuminate\Support\Facades\DB;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class PenjualanController extends Controller
 {
@@ -16,97 +17,98 @@ class PenjualanController extends Controller
         return view('penjualan.index');
     }
 
-    public function data()
-    {
-        $penjualan = Penjualan::with('member')->orderBy('id_penjualan', 'desc')->get();
+    public function data(Request $request)
+{
+    $query = Penjualan::with(['member', 'user'])->orderBy('id_penjualan', 'desc');
 
-        return datatables()
-            ->of($penjualan)
-            ->addIndexColumn()
-            ->addColumn('total_item', function ($penjualan) {
-                return format_uang($penjualan->total_item);
-            })
-            ->addColumn('total_harga', function ($penjualan) {
-                return 'KES '. format_uang($penjualan->total_harga);
-            })
-            ->addColumn('bayar', function ($penjualan) {
-                return 'KES '. format_uang($penjualan->bayar);
-            })
-            ->addColumn('tanggal', function ($penjualan) {
-                return tanggal_indonesia($penjualan->created_at, false);
-            })
-            ->addColumn('kode_member', function ($penjualan) {
-                $member = $penjualan->member->kode_member ?? '';
-                return '<span class="label label-success">'. $member .'</spa>';
-            })
-            ->editColumn('diskon', function ($penjualan) {
-                return $penjualan->diskon . '%';
-            })
-            ->editColumn('kasir', function ($penjualan) {
-                return $penjualan->user->name ?? '';
-            })
-            ->addColumn('aksi', function ($penjualan) {
-                return '
-                <div class="btn-group">
-                    <button onclick="showDetail(`'. route('penjualan.show', $penjualan->id_penjualan) .'`)" class="btn btn-xs btn-primary btn-flat"><i class="fa fa-eye"></i></button>
-                    <button onclick="deleteData(`'. route('penjualan.destroy', $penjualan->id_penjualan) .'`)" class="btn btn-xs btn-danger btn-flat"><i class="fa fa-trash"></i></button>
-                </div>
-                ';
-            })
-            ->rawColumns(['aksi', 'kode_member'])
-            ->make(true);
+    // Filter by date range
+    if ($request->filled('from_date') && $request->filled('to_date')) {
+        $query->whereBetween('created_at', [
+            $request->from_date . ' 00:00:00',
+            $request->to_date . ' 23:59:59'
+        ]);
     }
-    // visit "codeastro" for more projects!
+
+    $penjualan = $query->get();
+
+    return datatables()
+        ->of($penjualan)
+        ->addIndexColumn()
+        ->addColumn('total_item', fn($p) => format_uang($p->total_item))
+        ->addColumn('total_harga', fn($p) => 'KES ' . format_uang($p->total_harga))
+        ->addColumn('bayar', fn($p) => 'KES ' . format_uang($p->bayar))
+        ->addColumn('tanggal', fn($p) => tanggal_indonesia($p->created_at, false))
+        ->addColumn('kode_member', fn($p) => '<span class="label label-success">'.($p->member->kode_member ?? '').'</span>')
+        ->editColumn('diskon', fn($p) => $p->diskon . '%')
+        ->editColumn('kasir', fn($p) => $p->user->name ?? '')
+        ->addColumn('aksi', fn($p) => '
+            <div class="btn-group">
+                <button onclick="showDetail(`'. route('penjualan.show', $p->id_penjualan) .'`)" class="btn btn-xs btn-primary btn-flat"><i class="fa fa-eye"></i></button>
+                <button onclick="deleteData(`'. route('penjualan.destroy', $p->id_penjualan) .'`)" class="btn btn-xs btn-danger btn-flat"><i class="fa fa-trash"></i></button>
+            </div>
+        ')
+        ->rawColumns(['aksi', 'kode_member'])
+        ->make(true);
+}
+
     public function create()
     {
-        $penjualan = new Penjualan();
-        $penjualan->id_member = null;
-        $penjualan->total_item = 0;
-        $penjualan->total_harga = 0;
-        $penjualan->diskon = 0;
-        $penjualan->bayar = 0;
-        $penjualan->diterima = 0;
-        $penjualan->id_user = auth()->id();
-        $penjualan->save();
+        $penjualan = Penjualan::create([
+            'id_member' => null,
+            'total_item' => 0,
+            'total_harga' => 0,
+            'diskon' => 0,
+            'bayar' => 0,
+            'diterima' => 0,
+            'id_user' => auth()->id(),
+        ]);
 
         session(['id_penjualan' => $penjualan->id_penjualan]);
         return redirect()->route('transaksi.index');
     }
 
     public function store(Request $request)
-{
-    $penjualan = Penjualan::findOrFail($request->id_penjualan);
-    $penjualan->id_member = $request->id_member;
-    $penjualan->total_item = $request->total_item;
-    $penjualan->total_harga = $request->total;
-    $penjualan->diskon = $request->diskon;
-    $penjualan->bayar = $request->bayar;
-    $penjualan->diterima = $request->diterima;
-    $penjualan->update();
+    {
+        DB::beginTransaction();
+        try {
+            $penjualan = Penjualan::findOrFail($request->id_penjualan);
 
-    $detail = PenjualanDetail::where('id_penjualan', $penjualan->id_penjualan)->get();
+            $penjualan->update([
+                'id_member' => $request->id_member,
+                'total_item' => $request->total_item,
+                'total_harga' => $request->total,
+                'diskon' => $request->diskon,
+                'bayar' => $request->bayar,
+                'diterima' => $request->diterima,
+            ]);
 
-    foreach ($detail as $item) {
-        $item->diskon = $request->diskon;
-        $item->update();
+            $details = PenjualanDetail::where('id_penjualan', $penjualan->id_penjualan)->get();
 
-        $produk = Produk::find($item->id_produk);
+            foreach ($details as $item) {
+                $item->update(['diskon' => $request->diskon]);
 
-        // 🧠 Stock validation — stop if insufficient
-        if ($produk->stok < $item->jumlah) {
-            return redirect()
-                ->back()
-                ->with('error', "❌ Insufficient stock for product: {$produk->nama_produk}. 
-                                 Available: {$produk->stok}, Requested: {$item->jumlah}");
+                $produk = Produk::find($item->id_produk);
+                if (!$produk) continue;
+
+                if ($produk->stok < $item->jumlah) {
+                    DB::rollBack();
+                    return redirect()->back()->with(
+                        'error',
+                        "❌ Insufficient stock for product: {$produk->nama_produk}. 
+                        Available: {$produk->stok}, Requested: {$item->jumlah}"
+                    );
+                }
+
+                $produk->decrement('stok', $item->jumlah);
+            }
+
+            DB::commit();
+            return redirect()->route('transaksi.selesai')->with('success', 'Sale completed successfully!');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()->with('error', 'Error processing sale: ' . $e->getMessage());
         }
-
-        // Deduct stock safely
-        $produk->stok -= $item->jumlah;
-        $produk->update();
     }
-
-    return redirect()->route('transaksi.selesai')->with('sucess','Sale were successful');
-}
 
     public function show($id)
     {
@@ -115,48 +117,42 @@ class PenjualanController extends Controller
         return datatables()
             ->of($detail)
             ->addIndexColumn()
-            ->addColumn('kode_produk', function ($detail) {
-                return '<span class="label label-success">'. $detail->produk->kode_produk .'</span>';
-            })
-            ->addColumn('nama_produk', function ($detail) {
-                return $detail->produk->nama_produk;
-            })
-            ->addColumn('harga_jual', function ($detail) {
-                return 'KES '. format_uang($detail->harga_jual);
-            })
-            ->addColumn('jumlah', function ($detail) {
-                return format_uang($detail->jumlah);
-            })
-            ->addColumn('subtotal', function ($detail) {
-                return 'KES '. format_uang($detail->subtotal);
-            })
+            ->addColumn('kode_produk', fn($d) => '<span class="label label-success">' . $d->produk->kode_produk . '</span>')
+            ->addColumn('nama_produk', fn($d) => $d->produk->nama_produk)
+            ->addColumn('harga_jual', fn($d) => 'KES ' . format_uang($d->harga_jual))
+            ->addColumn('jumlah', fn($d) => format_uang($d->jumlah))
+            ->addColumn('subtotal', fn($d) => 'KES ' . format_uang($d->subtotal))
             ->rawColumns(['kode_produk'])
             ->make(true);
     }
-    // visit "codeastro" for more projects!
+
     public function destroy($id)
     {
-        $penjualan = Penjualan::find($id);
-        $detail    = PenjualanDetail::where('id_penjualan', $penjualan->id_penjualan)->get();
-        foreach ($detail as $item) {
-            $produk = Produk::find($item->id_produk);
-            if ($produk) {
-                $produk->stok += $item->jumlah;
-                $produk->update();
+        DB::beginTransaction();
+        try {
+            $penjualan = Penjualan::findOrFail($id);
+            $details = PenjualanDetail::where('id_penjualan', $penjualan->id_penjualan)->get();
+
+            foreach ($details as $item) {
+                if ($produk = Produk::find($item->id_produk)) {
+                    $produk->increment('stok', $item->jumlah);
+                }
+                $item->delete();
             }
 
-            $item->delete();
+            $penjualan->delete();
+            DB::commit();
+
+            return response(null, 204);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response(['error' => $e->getMessage()], 500);
         }
-
-        $penjualan->delete();
-
-        return response(null, 204);
     }
 
     public function selesai()
     {
         $setting = Setting::first();
-
         return view('penjualan.selesai', compact('setting'));
     }
 
@@ -164,13 +160,15 @@ class PenjualanController extends Controller
     {
         $setting = Setting::first();
         $penjualan = Penjualan::find(session('id_penjualan'));
-        if (! $penjualan) {
+
+        if (!$penjualan) {
             abort(404);
         }
+
         $detail = PenjualanDetail::with('produk')
             ->where('id_penjualan', session('id_penjualan'))
             ->get();
-        
+
         return view('penjualan.nota_kecil', compact('setting', 'penjualan', 'detail'));
     }
 
@@ -178,16 +176,44 @@ class PenjualanController extends Controller
     {
         $setting = Setting::first();
         $penjualan = Penjualan::find(session('id_penjualan'));
-        if (! $penjualan) {
+
+        if (!$penjualan) {
             abort(404);
         }
+
         $detail = PenjualanDetail::with('produk')
             ->where('id_penjualan', session('id_penjualan'))
             ->get();
 
-        $pdf = PDF::loadView('penjualan.nota_besar', compact('setting', 'penjualan', 'detail'));
-        $pdf->setPaper(0,0,609,440, 'potrait');
-        return $pdf->stream('Transaction-'. date('Y-m-d-his') .'.pdf');
+        $pdf = Pdf::loadView('penjualan.nota_besar', compact('setting', 'penjualan', 'detail'))
+                  ->setPaper('a5', 'portrait');
+
+        return $pdf->stream('sales_report.pdf');
     }
+
+    public function print(Request $request)
+{
+    $from_date = $request->input('from_date');
+    $to_date = $request->input('to_date');
+
+    if (!$from_date || !$to_date) {
+        return back()->with('error', 'Please select a valid date range.');
+    }
+
+    // Use 'created_at' since 'tanggal' is not in your DB
+    $penjualan = Penjualan::whereBetween('created_at', [$from_date, $to_date])->get();
+
+    if ($penjualan->isEmpty()) {
+        return back()->with('error', "No sales found between $from_date and $to_date.");
+    }
+
+    $pdf = Pdf::loadView('penjualan.print', [
+        'penjualan' => $penjualan,
+        'from_date' => $from_date,
+        'to_date' => $to_date
+    ])->setPaper('A4', 'portrait');
+
+    return $pdf->stream('sales-report.pdf');
 }
-// visit "codeastro" for more projects!
+
+}

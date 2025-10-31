@@ -122,6 +122,7 @@ return array(
     'BaconQrCode\\Renderer\\RendererStyle\\RendererStyle' => $vendorDir . '/bacon/bacon-qr-code/src/Renderer/RendererStyle/RendererStyle.php',
     'BaconQrCode\\Writer' => $vendorDir . '/bacon/bacon-qr-code/src/Writer.php',
     'Barryvdh\\DomPDF\\Facade' => $vendorDir . '/barryvdh/laravel-dompdf/src/Facade.php',
+    'Barryvdh\\DomPDF\\Facade\\Pdf' => $vendorDir . '/barryvdh/laravel-dompdf/src/Facade/Pdf.php',
     'Barryvdh\\DomPDF\\PDF' => $vendorDir . '/barryvdh/laravel-dompdf/src/PDF.php',
     'Barryvdh\\DomPDF\\ServiceProvider' => $vendorDir . '/barryvdh/laravel-dompdf/src/ServiceProvider.php',
     'Brick\\Math\\BigDecimal' => $vendorDir . '/brick/math/src/BigDecimal.php',
